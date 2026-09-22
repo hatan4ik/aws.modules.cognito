@@ -12,14 +12,14 @@ See ADR 0002 and ADR 0006. The Phase 6 module-release workflow checks that the g
 ## Requirements
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.7.0, < 2.0.0 |
 | <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.35.0, < 7.0.0 |
 
 ## Providers
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="provider_aws"></a> [aws](#provider\_aws) | 6.65.0 |
 | <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
 
@@ -30,7 +30,7 @@ No modules.
 ## Resources
 
 | Name | Type |
-|------|------|
+| ---- | ---- |
 | [aws_cognito_resource_server.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cognito_resource_server) | resource |
 | [aws_cognito_user_pool.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cognito_user_pool) | resource |
 | [aws_cognito_user_pool_client.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cognito_user_pool_client) | resource |
@@ -39,7 +39,7 @@ No modules.
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
+| ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_clients"></a> [clients](#input\_clients) | Stable client-keyed OAuth authorization-code clients. Callback and logout URLs must be reviewed application endpoints. | <pre>map(object({<br/>    callback_urls          = set(string)<br/>    logout_urls            = set(string)<br/>    allowed_oauth_scopes   = set(string)<br/>    access_token_validity  = number<br/>    id_token_validity      = number<br/>    refresh_token_validity = number<br/>    generate_secret        = bool<br/>  }))</pre> | `{}` | no |
 | <a name="input_deletion_protection"></a> [deletion\_protection](#input\_deletion\_protection) | Whether AWS Cognito deletion protection remains active for this user pool. | `bool` | n/a | yes |
 | <a name="input_feature_plan"></a> [feature\_plan](#input\_feature\_plan) | Cognito feature plan. MRR requires ESSENTIALS or PLUS; the module rejects Terraform-managed MRR until provider support exists. | `string` | n/a | yes |
@@ -53,7 +53,7 @@ No modules.
 ## Outputs
 
 | Name | Description |
-|------|-------------|
+| ---- | ----------- |
 | <a name="output_client_ids"></a> [client\_ids](#output\_client\_ids) | Stable application-client key to user-pool client ID mapping. Client secrets are deliberately not output. |
 | <a name="output_replication_status"></a> [replication\_status](#output\_replication\_status) | Explicit indication that MRR must remain blocked until a provider-backed resource supports the AWS APIs. |
 | <a name="output_resource_server_scope_identifiers"></a> [resource\_server\_scope\_identifiers](#output\_resource\_server\_scope\_identifiers) | Stable custom resource-server scope identifiers for API authorization configuration. |
