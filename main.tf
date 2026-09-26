@@ -1,14 +1,3 @@
-resource "terraform_data" "mrr_provider_capability" {
-  input = var.replication
-
-  lifecycle {
-    precondition {
-      condition     = !var.replication.enabled
-      error_message = "Terraform-managed Cognito MRR is blocked: the AWS provider lacks a resource for CreateUserPoolReplica and UpdateUserPoolReplica. Do not replace this guard with a local-exec or untracked CLI call; adopt a provider-backed resource in a reviewed ADR amendment first."
-    }
-  }
-}
-
 resource "aws_cognito_user_pool" "this" {
   name                = var.name
   deletion_protection = var.deletion_protection ? "ACTIVE" : "INACTIVE"
@@ -29,6 +18,7 @@ resource "aws_cognito_user_pool" "this" {
     require_symbols                  = true
     require_uppercase                = true
     temporary_password_validity_days = var.password_policy.temporary_password_validity_days
+    password_history_size            = var.password_policy.password_history_size
   }
 
   software_token_mfa_configuration {
@@ -52,6 +42,10 @@ resource "aws_cognito_user_pool" "this" {
     email_subject        = "Verify your sign-in"
   }
 
+  user_pool_add_ons {
+    advanced_security_mode = var.advanced_security_mode
+  }
+
   schema {
     attribute_data_type = "String"
     mutable             = false
@@ -61,6 +55,62 @@ resource "aws_cognito_user_pool" "this" {
     string_attribute_constraints {
       min_length = 5
       max_length = 320
+    }
+  }
+
+  dynamic "schema" {
+    for_each = var.schema_attributes
+
+    content {
+      attribute_data_type      = schema.value.attribute_data_type
+      mutable                  = schema.value.mutable
+      required                 = schema.value.required
+      developer_only_attribute = schema.value.developer_only_attribute
+      name                     = schema.key
+
+      dynamic "string_attribute_constraints" {
+        for_each = schema.value.attribute_data_type == "String" && schema.value.string_constraints != null ? [schema.value.string_constraints] : []
+
+        content {
+          min_length = string_attribute_constraints.value.min_length
+          max_length = string_attribute_constraints.value.max_length
+        }
+      }
+
+      dynamic "number_attribute_constraints" {
+        for_each = schema.value.attribute_data_type == "Number" && schema.value.number_constraints != null ? [schema.value.number_constraints] : []
+
+        content {
+          min_value = number_attribute_constraints.value.min_value
+          max_value = number_attribute_constraints.value.max_value
+        }
+      }
+    }
+  }
+
+  dynamic "lambda_config" {
+    for_each = length(local.lambda_config) == 0 ? [] : [var.lambda_config]
+
+    content {
+      pre_sign_up          = lambda_config.value.pre_sign_up
+      post_confirmation    = lambda_config.value.post_confirmation
+      pre_authentication   = lambda_config.value.pre_authentication
+      post_authentication  = lambda_config.value.post_authentication
+      custom_message       = lambda_config.value.custom_message
+      pre_token_generation = lambda_config.value.pre_token_generation
+      user_migration       = lambda_config.value.user_migration
+    }
+  }
+
+  dynamic "email_configuration" {
+    for_each = var.email_configuration == null ? [] : [var.email_configuration]
+
+    content {
+      email_sending_account  = "DEVELOPER"
+      source_arn             = email_configuration.value.source_arn
+      from_email_address     = email_configuration.value.from_email_address
+      reply_to_email_address = email_configuration.value.reply_to_email_address
+      configuration_set      = email_configuration.value.configuration_set
     }
   }
 
@@ -108,5 +158,16 @@ resource "aws_cognito_user_pool_client" "this" {
     access_token  = "minutes"
     id_token      = "minutes"
     refresh_token = "days"
+  }
+
+  lifecycle {
+    precondition {
+      condition = alltrue([
+        for scope in each.value.allowed_oauth_scopes :
+        contains(["openid", "email", "profile", "phone", "aws.cognito.signin.user.admin"], scope) ||
+        anytrue([for server in values(var.resource_servers) : startswith(scope, "${server.identifier}/") && contains(keys(server.scopes), trimprefix(scope, "${server.identifier}/"))])
+      ])
+      error_message = "Every non-standard OAuth scope on client \"${each.key}\" must be <resource_server_identifier>/<scope_name> for a scope declared in resource_servers, or one of the standard OIDC scopes."
+    }
   }
 }

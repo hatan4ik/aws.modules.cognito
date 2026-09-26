@@ -17,10 +17,7 @@ output "resource_server_scope_identifiers" {
   value       = { for key, server in aws_cognito_resource_server.this : key => server.scope_identifiers }
 }
 
-output "replication_status" {
-  description = "Explicit indication that MRR must remain blocked until a provider-backed resource supports the AWS APIs."
-  value = {
-    managed_by_terraform = false
-    status               = "blocked-provider-support"
-  }
+output "advanced_security_mode" {
+  description = "The advanced security mode this pool was created with."
+  value       = var.advanced_security_mode
 }
