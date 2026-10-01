@@ -107,9 +107,10 @@ run "renders_new_v1_features_when_declared" {
   command = plan
 
   variables {
+    feature_plan           = "PLUS"
     advanced_security_mode = "ENFORCED"
     schema_attributes = {
-      full_name          = { attribute_data_type = "String", required = true, string_constraints = { min_length = 1, max_length = 128 } }
+      name               = { attribute_data_type = "String", required = true, string_constraints = { min_length = 1, max_length = 128 } }
       "custom:tenant_id" = { attribute_data_type = "String", mutable = false }
     }
     lambda_config = {
@@ -128,7 +129,7 @@ run "renders_new_v1_features_when_declared" {
   }
 
   assert {
-    condition     = length([for s in aws_cognito_user_pool.this.schema : s if s.name == "full_name"]) == 1 && tonumber([for s in aws_cognito_user_pool.this.schema : s if s.name == "full_name"][0].string_attribute_constraints[0].max_length) == 128 && length([for s in aws_cognito_user_pool.this.schema : s if s.name == "custom:tenant_id"]) == 1
+    condition     = length([for s in aws_cognito_user_pool.this.schema : s if s.name == "name"]) == 1 && tonumber([for s in aws_cognito_user_pool.this.schema : s if s.name == "name"][0].string_attribute_constraints[0].max_length) == 128 && length([for s in aws_cognito_user_pool.this.schema : s if s.name == "custom:tenant_id"]) == 1
     error_message = "Additional schema attributes, including a caller-prefixed custom attribute, must render with their constraints."
   }
 
@@ -171,10 +172,30 @@ run "rejects_reusing_the_built_in_email_attribute_name" {
   expect_failures = [var.schema_attributes]
 }
 
-run "rejects_required_immutable_schema_attribute" {
+run "accepts_required_immutable_standard_attribute" {
   command = plan
   variables {
-    schema_attributes = { full_name = { attribute_data_type = "String", required = true, mutable = false } }
+    schema_attributes = { given_name = { attribute_data_type = "String", required = true, mutable = false } }
+  }
+
+  assert {
+    condition     = [for s in aws_cognito_user_pool.this.schema : s if s.name == "given_name"][0].required == true && [for s in aws_cognito_user_pool.this.schema : s if s.name == "given_name"][0].mutable == false
+    error_message = "A standard attribute may be both required and immutable, exactly like the built-in email attribute."
+  }
+}
+
+run "rejects_required_custom_attribute" {
+  command = plan
+  variables {
+    schema_attributes = { full_name = { attribute_data_type = "String", required = true } }
+  }
+  expect_failures = [var.schema_attributes]
+}
+
+run "rejects_required_custom_prefixed_attribute" {
+  command = plan
+  variables {
+    schema_attributes = { "custom:tenant_id" = { attribute_data_type = "String", required = true } }
   }
   expect_failures = [var.schema_attributes]
 }
@@ -185,6 +206,37 @@ run "rejects_invalid_advanced_security_mode" {
     advanced_security_mode = "AUDIT_MODE"
   }
   expect_failures = [var.advanced_security_mode]
+}
+
+run "rejects_audit_advanced_security_on_essentials" {
+  command = plan
+  variables {
+    feature_plan           = "ESSENTIALS"
+    advanced_security_mode = "AUDIT"
+  }
+  expect_failures = [aws_cognito_user_pool.this]
+}
+
+run "rejects_enforced_advanced_security_on_essentials" {
+  command = plan
+  variables {
+    feature_plan           = "ESSENTIALS"
+    advanced_security_mode = "ENFORCED"
+  }
+  expect_failures = [aws_cognito_user_pool.this]
+}
+
+run "accepts_audit_advanced_security_on_plus" {
+  command = plan
+  variables {
+    feature_plan           = "PLUS"
+    advanced_security_mode = "AUDIT"
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool.this.user_pool_add_ons[0].advanced_security_mode == "AUDIT" && aws_cognito_user_pool.this.user_pool_tier == "PLUS"
+    error_message = "AUDIT must be accepted on the PLUS plan."
+  }
 }
 
 run "rejects_malformed_lambda_arn" {
@@ -214,6 +266,109 @@ run "rejects_client_without_callback_url" {
         access_token_validity  = 60
         id_token_validity      = 60
         refresh_token_validity = 30
+        generate_secret        = false
+      }
+    }
+  }
+  expect_failures = [var.clients]
+}
+
+run "accepts_token_validity_at_service_bounds" {
+  command = plan
+  variables {
+    clients = {
+      low = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 5
+        id_token_validity      = 5
+        refresh_token_validity = 1
+        generate_secret        = false
+      }
+      high = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 1440
+        id_token_validity      = 1440
+        refresh_token_validity = 3650
+        generate_secret        = false
+      }
+    }
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool_client.this["low"].access_token_validity == 5 && aws_cognito_user_pool_client.this["high"].refresh_token_validity == 3650
+    error_message = "Token validity values at Cognito's inclusive bounds must be accepted."
+  }
+}
+
+run "rejects_access_token_validity_below_five_minutes" {
+  command = plan
+  variables {
+    clients = {
+      web = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 1
+        id_token_validity      = 60
+        refresh_token_validity = 30
+        generate_secret        = false
+      }
+    }
+  }
+  expect_failures = [var.clients]
+}
+
+run "rejects_id_token_validity_above_one_day" {
+  command = plan
+  variables {
+    clients = {
+      web = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 60
+        id_token_validity      = 1441
+        refresh_token_validity = 30
+        generate_secret        = false
+      }
+    }
+  }
+  expect_failures = [var.clients]
+}
+
+run "rejects_refresh_token_validity_above_ten_years" {
+  command = plan
+  variables {
+    clients = {
+      web = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 60
+        id_token_validity      = 60
+        refresh_token_validity = 3651
+        generate_secret        = false
+      }
+    }
+  }
+  expect_failures = [var.clients]
+}
+
+run "rejects_fractional_refresh_token_validity" {
+  command = plan
+  variables {
+    clients = {
+      web = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 60
+        id_token_validity      = 60
+        refresh_token_validity = 0.5
         generate_secret        = false
       }
     }

@@ -59,7 +59,7 @@ variable "password_policy" {
 }
 
 variable "clients" {
-  description = "Stable client-keyed OAuth authorization-code clients. Callback and logout URLs must be reviewed application endpoints."
+  description = "Stable client-keyed OAuth authorization-code clients. Callback and logout URLs must be reviewed application endpoints. Token validity units are fixed by the module: access_token_validity and id_token_validity are in MINUTES (whole numbers, 5-1440, i.e. 5 minutes to 1 day); refresh_token_validity is in DAYS (whole numbers, 1-3650, i.e. 1 day to 10 years). These are the Cognito service bounds."
   type = map(object({
     callback_urls          = set(string)
     logout_urls            = set(string)
@@ -78,12 +78,32 @@ variable "clients" {
         length(client.callback_urls) > 0,
         alltrue([for url in client.callback_urls : can(regex("^https://", url))]),
         alltrue([for url in client.logout_urls : can(regex("^https://", url))]),
-        client.access_token_validity > 0,
-        client.id_token_validity > 0,
-        client.refresh_token_validity > 0,
       ]
     ]))
-    error_message = "Every client needs HTTPS callback/logout URLs and positive token validity values."
+    error_message = "Every client needs at least one callback URL, and every callback and logout URL must be HTTPS."
+  }
+
+  # Units are fixed in main.tf (token_validity_units): minutes for access and
+  # ID tokens, days for refresh tokens. The ranges are Cognito's own bounds
+  # (access/ID token 5 minutes to 1 day; refresh token 1 hour to 10 years,
+  # which in whole days is 1 to 3650), so an out-of-range value fails here at
+  # plan time instead of at CreateUserPoolClient.
+  validation {
+    condition = alltrue(flatten([
+      for client in values(var.clients) : [
+        for minutes in [client.access_token_validity, client.id_token_validity] :
+        minutes == floor(minutes) && minutes >= 5 && minutes <= 1440
+      ]
+    ]))
+    error_message = "access_token_validity and id_token_validity are in minutes and must be whole numbers from 5 through 1440 (5 minutes to 1 day)."
+  }
+
+  validation {
+    condition = alltrue([
+      for client in values(var.clients) :
+      client.refresh_token_validity == floor(client.refresh_token_validity) && client.refresh_token_validity >= 1 && client.refresh_token_validity <= 3650
+    ])
+    error_message = "refresh_token_validity is in days and must be a whole number from 1 through 3650 (1 day to 10 years)."
   }
 }
 
@@ -134,9 +154,21 @@ variable "schema_attributes" {
     error_message = "schema_attributes[*].attribute_data_type must be String, Number, DateTime, or Boolean."
   }
 
+  # Cognito only lets OIDC standard attributes be required; a custom attribute
+  # (any name outside the standard set, with or without the custom: prefix)
+  # cannot be, and CreateUserPool rejects it at apply time. Immutability is
+  # unrelated: a standard attribute may be both required and immutable, as the
+  # built-in email attribute is. The standard set below is the one Cognito
+  # documents, minus email (reserved above) and sub (managed by Cognito).
   validation {
-    condition     = alltrue([for attribute in values(var.schema_attributes) : attribute.required ? attribute.mutable : true])
-    error_message = "A required schema attribute must also be mutable; Cognito rejects an immutable required attribute at pool creation."
+    condition = alltrue([
+      for name, attribute in var.schema_attributes : !attribute.required || contains([
+        "name", "family_name", "given_name", "middle_name", "nickname", "preferred_username",
+        "profile", "picture", "website", "gender", "birthdate", "zoneinfo", "locale",
+        "updated_at", "address", "phone_number",
+      ], name)
+    ])
+    error_message = "Only standard attributes (for example name, given_name, phone_number) can be required; Cognito does not allow a custom attribute to be required. Set required = false on custom attributes and enforce presence in a pre_sign_up trigger instead."
   }
 }
 

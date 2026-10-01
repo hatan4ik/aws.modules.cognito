@@ -115,6 +115,16 @@ resource "aws_cognito_user_pool" "this" {
   }
 
   tags = local.common_tags
+
+  lifecycle {
+    # Threat protection (advanced security) is a Plus-tier feature; on
+    # ESSENTIALS, CreateUserPool/UpdateUserPool reject AUDIT or ENFORCED at
+    # apply time with FeatureUnavailableInTierException.
+    precondition {
+      condition     = var.advanced_security_mode == "OFF" || var.feature_plan == "PLUS"
+      error_message = "advanced_security_mode = \"${var.advanced_security_mode}\" requires feature_plan = \"PLUS\"; Cognito threat protection is not available on the ${var.feature_plan} plan. Set feature_plan = \"PLUS\" or advanced_security_mode = \"OFF\"."
+    }
+  }
 }
 
 resource "aws_cognito_resource_server" "this" {

@@ -3,8 +3,8 @@ provider "aws" {
 }
 
 # PLUS feature plan with adaptive, risk-based authentication enforced;
-# additional schema attributes (one required mutable string, one immutable
-# custom attribute); Lambda triggers for sign-up validation and post-
+# additional schema attributes (the required standard name attribute, one
+# immutable, optional custom attribute); Lambda triggers for sign-up validation and post-
 # confirmation provisioning; and a branded SES-backed email sender in place
 # of the rate-limited Cognito default.
 module "users" {
@@ -23,7 +23,8 @@ module "users" {
   }
 
   schema_attributes = {
-    full_name = {
+    # A standard attribute: only standard attributes can be required.
+    name = {
       attribute_data_type = "String"
       required            = true
       mutable             = true
