@@ -200,12 +200,7 @@ variable "lambda_config" {
 
   validation {
     condition = alltrue([
-      for arn in [
-        var.lambda_config.pre_sign_up, var.lambda_config.post_confirmation,
-        var.lambda_config.pre_authentication, var.lambda_config.post_authentication,
-        var.lambda_config.custom_message, var.lambda_config.pre_token_generation,
-        var.lambda_config.user_migration,
-      ] : arn == null ? true : can(regex("^arn:[^:]+:lambda:[^:]+:[0-9]{12}:function:.+$", arn))
+      for arn in values(var.lambda_config) : arn == null ? true : can(regex("^arn:[^:]+:lambda:[^:]+:[0-9]{12}:function:.+$", arn))
     ])
     error_message = "Every lambda_config value must be a Lambda function ARN."
   }

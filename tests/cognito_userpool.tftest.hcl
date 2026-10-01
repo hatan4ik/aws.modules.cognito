@@ -144,6 +144,56 @@ run "renders_new_v1_features_when_declared" {
   }
 }
 
+run "renders_every_supported_lambda_trigger" {
+  command = plan
+
+  variables {
+    lambda_config = {
+      pre_sign_up          = "arn:aws:lambda:us-east-2:123456789012:function:pre-sign-up"
+      post_confirmation    = "arn:aws:lambda:us-east-2:123456789012:function:post-confirmation"
+      pre_authentication   = "arn:aws:lambda:us-east-2:123456789012:function:pre-authentication"
+      post_authentication  = "arn:aws:lambda:us-east-2:123456789012:function:post-authentication"
+      custom_message       = "arn:aws:lambda:us-east-2:123456789012:function:custom-message"
+      pre_token_generation = "arn:aws:lambda:us-east-2:123456789012:function:pre-token-generation"
+      user_migration       = "arn:aws:lambda:us-east-2:123456789012:function:user-migration"
+    }
+  }
+
+  assert {
+    condition = (
+      aws_cognito_user_pool.this.lambda_config[0].pre_sign_up == "arn:aws:lambda:us-east-2:123456789012:function:pre-sign-up" &&
+      aws_cognito_user_pool.this.lambda_config[0].post_confirmation == "arn:aws:lambda:us-east-2:123456789012:function:post-confirmation" &&
+      aws_cognito_user_pool.this.lambda_config[0].pre_authentication == "arn:aws:lambda:us-east-2:123456789012:function:pre-authentication" &&
+      aws_cognito_user_pool.this.lambda_config[0].post_authentication == "arn:aws:lambda:us-east-2:123456789012:function:post-authentication" &&
+      aws_cognito_user_pool.this.lambda_config[0].custom_message == "arn:aws:lambda:us-east-2:123456789012:function:custom-message" &&
+      aws_cognito_user_pool.this.lambda_config[0].pre_token_generation == "arn:aws:lambda:us-east-2:123456789012:function:pre-token-generation" &&
+      aws_cognito_user_pool.this.lambda_config[0].user_migration == "arn:aws:lambda:us-east-2:123456789012:function:user-migration"
+    )
+    error_message = "Every supported trigger must render from the normalized lambda_config map."
+  }
+}
+
+run "renders_only_the_declared_lambda_trigger" {
+  command = plan
+
+  variables {
+    lambda_config = { user_migration = "arn:aws:lambda:us-east-2:123456789012:function:user-migration" }
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool.this.lambda_config[0].user_migration == "arn:aws:lambda:us-east-2:123456789012:function:user-migration" && aws_cognito_user_pool.this.lambda_config[0].pre_sign_up == null
+    error_message = "Only the declared trigger may render; unset triggers must stay null."
+  }
+}
+
+run "rejects_malformed_arn_on_any_trigger" {
+  command = plan
+  variables {
+    lambda_config = { user_migration = "arn:aws:sns:us-east-2:123456789012:not-a-function" }
+  }
+  expect_failures = [var.lambda_config]
+}
+
 run "rejects_a_scope_from_an_undeclared_resource_server" {
   command = plan
 

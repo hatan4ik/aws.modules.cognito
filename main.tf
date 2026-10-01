@@ -89,16 +89,19 @@ resource "aws_cognito_user_pool" "this" {
   }
 
   dynamic "lambda_config" {
-    for_each = length(local.lambda_config) == 0 ? [] : [var.lambda_config]
+    for_each = length(local.lambda_config) == 0 ? [] : [local.lambda_config]
 
+    # Provider block arguments cannot be generated, so each supported trigger
+    # is mapped by name here; the set of names itself comes from the type of
+    # var.lambda_config. Unset triggers are absent from the normalized map.
     content {
-      pre_sign_up          = lambda_config.value.pre_sign_up
-      post_confirmation    = lambda_config.value.post_confirmation
-      pre_authentication   = lambda_config.value.pre_authentication
-      post_authentication  = lambda_config.value.post_authentication
-      custom_message       = lambda_config.value.custom_message
-      pre_token_generation = lambda_config.value.pre_token_generation
-      user_migration       = lambda_config.value.user_migration
+      pre_sign_up          = lookup(lambda_config.value, "pre_sign_up", null)
+      post_confirmation    = lookup(lambda_config.value, "post_confirmation", null)
+      pre_authentication   = lookup(lambda_config.value, "pre_authentication", null)
+      post_authentication  = lookup(lambda_config.value, "post_authentication", null)
+      custom_message       = lookup(lambda_config.value, "custom_message", null)
+      pre_token_generation = lookup(lambda_config.value, "pre_token_generation", null)
+      user_migration       = lookup(lambda_config.value, "user_migration", null)
     }
   }
 
