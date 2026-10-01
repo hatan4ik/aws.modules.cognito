@@ -45,6 +45,11 @@ run "plans_secure_primary_user_pool_with_platform_defaults" {
   }
 
   assert {
+    condition     = aws_cognito_user_pool.this.verification_message_template[0].default_email_option == "CONFIRM_WITH_CODE" && aws_cognito_user_pool.this.verification_message_template[0].email_subject == "Verify your sign-in" && aws_cognito_user_pool.this.verification_message_template[0].email_message == "Your verification code is {####}."
+    error_message = "With verification_email unset, the verification email must keep the v1.0 subject and body exactly."
+  }
+
+  assert {
     condition     = length(aws_cognito_resource_server.this) == 0 && length(aws_cognito_user_pool_client.this) == 0
     error_message = "No clients or resource servers may exist unless declared."
   }
@@ -192,6 +197,51 @@ run "rejects_malformed_arn_on_any_trigger" {
     lambda_config = { user_migration = "arn:aws:sns:us-east-2:123456789012:not-a-function" }
   }
   expect_failures = [var.lambda_config]
+}
+
+run "renders_caller_verification_email_text" {
+  command = plan
+
+  variables {
+    verification_email = {
+      subject = "Confirm your Example account"
+      message = "Welcome to Example. Your code is {####}."
+    }
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool.this.verification_message_template[0].email_subject == "Confirm your Example account" && aws_cognito_user_pool.this.verification_message_template[0].email_message == "Welcome to Example. Your code is {####}." && aws_cognito_user_pool.this.verification_message_template[0].default_email_option == "CONFIRM_WITH_CODE"
+    error_message = "Caller-supplied verification email text must render; the code-confirmation option stays fixed."
+  }
+}
+
+run "keeps_default_subject_when_only_message_is_set" {
+  command = plan
+
+  variables {
+    verification_email = { message = "Your Example code is {####}." }
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool.this.verification_message_template[0].email_subject == "Verify your sign-in" && aws_cognito_user_pool.this.verification_message_template[0].email_message == "Your Example code is {####}."
+    error_message = "An omitted verification_email field must fall back to the v1.0 default."
+  }
+}
+
+run "rejects_verification_message_without_code_placeholder" {
+  command = plan
+  variables {
+    verification_email = { message = "Your verification code is attached." }
+  }
+  expect_failures = [var.verification_email]
+}
+
+run "rejects_blank_verification_subject" {
+  command = plan
+  variables {
+    verification_email = { subject = "   " }
+  }
+  expect_failures = [var.verification_email]
 }
 
 run "rejects_a_scope_from_an_undeclared_resource_server" {

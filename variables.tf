@@ -222,6 +222,26 @@ variable "email_configuration" {
   }
 }
 
+variable "verification_email" {
+  description = "Subject and body of the email Cognito sends with the sign-up/attribute verification code. The message must contain the {####} code placeholder. Omitting either field keeps the module's v1.0 text, so existing callers see no change. Branded copy is typically paired with email_configuration (an SES sender)."
+  type = object({
+    subject = optional(string, "Verify your sign-in")
+    message = optional(string, "Your verification code is {####}.")
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = strcontains(var.verification_email.message, "{####}") && length(var.verification_email.message) >= 6 && length(var.verification_email.message) <= 20000
+    error_message = "verification_email.message must be 6-20000 characters and contain the {####} verification-code placeholder; Cognito sends the code with CONFIRM_WITH_CODE."
+  }
+
+  validation {
+    condition     = length(trimspace(var.verification_email.subject)) > 0 && length(var.verification_email.subject) <= 140
+    error_message = "verification_email.subject must be 1-140 characters and not blank."
+  }
+}
+
 variable "tags" {
   description = "Additional required allocation and ownership tags. Name and Component tags are computed by the module."
   type        = map(string)

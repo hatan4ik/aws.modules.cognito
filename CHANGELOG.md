@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `verification_email` (optional object with optional `subject` and `message`): the verification email text was previously hard-coded with no stated reason. Both fields default to the exact v1.0 text (`"Verify your sign-in"` / `"Your verification code is {####}."`), so existing callers see no plan change. `message` must contain the `{####}` code placeholder and be 6–20000 characters; `subject` must be 1–140 non-blank characters. The confirmation method stays fixed at `CONFIRM_WITH_CODE`.
+
 ### Changed — stricter plan-time validation (correctness fixes)
 
 Each of these rejects at **plan** a configuration that previously passed plan but that Cognito already rejected at **apply**. No configuration that could actually be applied before is rejected now; a caller who sees one of these errors had a configuration that would have failed mid-apply. This is a correctness improvement, not a regression.
