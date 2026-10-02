@@ -53,6 +53,5 @@ No resources.
 
 | Name | Description |
 |------|-------------|
-| <a name="output_advanced_security_mode"></a> [advanced\_security\_mode](#output\_advanced\_security\_mode) | The advanced security mode this pool was created with. |
 | <a name="output_user_pool"></a> [user\_pool](#output\_user\_pool) | Primary user-pool identifiers. |
 <!-- END_TF_DOCS -->

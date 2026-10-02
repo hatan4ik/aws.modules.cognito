@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `verification_email` (optional object with optional `subject` and `message`): the verification email text was previously hard-coded with no stated reason. Both fields default to the exact v1.0 text (`"Verify your sign-in"` / `"Your verification code is {####}."`), so existing callers see no plan change. `message` must contain the `{####}` code placeholder and be 6–20000 characters; `subject` must be 1–140 non-blank characters. The confirmation method stays fixed at `CONFIRM_WITH_CODE`.
+
+### Removed
+
+- **Breaking:** the output `advanced_security_mode`. It only echoed the caller's own input back (`value = var.advanced_security_mode`), adding no information the caller did not already hold, and nothing in the platform consumes it (searched `devops-aws-infra` and every `aws.modules.*` repository; the only reference was this module's own `examples/production-features`). Migration: reference the value you pass as `advanced_security_mode` (for example a local or variable in your root) instead of `module.<name>.advanced_security_mode`. Because an output is removed, the next release is a major version.
+
+### Changed — stricter plan-time validation (correctness fixes)
+
+Each of these rejects at **plan** a configuration that previously passed plan but that Cognito already rejected at **apply**. No configuration that could actually be applied before is rejected now; a caller who sees one of these errors had a configuration that would have failed mid-apply. This is a correctness improvement, not a regression.
+
+- `schema_attributes`: the validation now enforces Cognito's real rule — **custom attributes cannot be `required`** (any name outside the OIDC standard set, with or without the `custom:` prefix). The previous rule, "a required attribute must be mutable", was wrong: it rejected valid configurations such as a required, immutable standard attribute (exactly what the module's own built-in `email` attribute is), while accepting a required custom attribute that `CreateUserPool` rejects. Required standard attributes may now be immutable.
+- `advanced_security_mode = "AUDIT"` or `"ENFORCED"` now requires `feature_plan = "PLUS"` (a `lifecycle.precondition` on the user pool). Cognito threat protection is a Plus-tier feature; on `ESSENTIALS` the API fails with `FeatureUnavailableInTierException`.
+- `clients[*]` token validity: units are now stated in the input description (access and ID tokens in **minutes**, refresh tokens in **days**, as the module has always rendered them) and the Cognito service ranges are enforced: `access_token_validity` and `id_token_validity` must be whole numbers 5–1440, `refresh_token_validity` a whole number 1–3650. Previously only `> 0` was checked, so, for example, `access_token_validity = 1` passed plan and failed at apply.
+- `examples/production-features` declared a required custom attribute (`full_name`), which Cognito would reject; it now uses the standard `name` attribute.
+
 ## [1.0.0] - 2026-09-25
 
 Breaking release. One module call still provisions one Cognito user pool. [docs/UPGRADE-1.0.md](docs/UPGRADE-1.0.md) maps every 0.1.x input and output to its replacement; resource addresses are unchanged, so this upgrade needs no `moved` blocks and no state migration for any consumer that already avoided the dead `replication` input.

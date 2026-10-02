@@ -20,9 +20,24 @@ Status: accepted 2026-09-25. Supersedes v0.1.x.
 
 Unchanged from v0.1.x and kept because it was already right: `name`, `feature_plan` (ESSENTIALS | PLUS), `deletion_protection`, `mfa_configuration` (ON | OPTIONAL), `password_policy`, `clients` (typed OAuth authorization-code clients, HTTPS-only URLs, no secrets ever output), `resource_servers` (typed custom scopes), `tags`.
 
-New in v1: `schema_attributes` (optional map, additional standard or custom attributes beyond the built-in `email`), `advanced_security_mode` (optional, OFF | AUDIT | ENFORCED, default OFF), `lambda_config` (optional map of the Cognito trigger names this module supports: `pre_sign_up`, `post_confirmation`, `pre_token_generation`, `custom_message`, each a Lambda ARN), `email_configuration` (optional; SES-based custom sender, defaulting to the Cognito default sender when unset).
+New in v1: `schema_attributes` (optional map, additional standard or custom attributes beyond the built-in `email`), `advanced_security_mode` (optional, OFF | AUDIT | ENFORCED, default OFF), `lambda_config` (optional typed object of the Cognito trigger names this module supports: `pre_sign_up`, `post_confirmation`, `pre_authentication`, `post_authentication`, `custom_message`, `pre_token_generation`, `user_migration`, each a Lambda ARN; the object type is the single list of supported triggers), `email_configuration` (optional; SES-based custom sender, defaulting to the Cognito default sender when unset).
 
 Removed in v1: `replication` and the `mrr_provider_capability` guard.
+
+## Post-1.0 audit corrections
+
+A read-only audit after 1.0.0 found plan-time gaps and drift; the decisions taken:
+
+| Finding | Decision |
+|---|---|
+| `schema_attributes` rejected *required + immutable*, citing a Cognito rule that does not exist (the built-in `email` is exactly that), while accepting *required custom* attributes, which Cognito does reject. | Validation enforces the real rule: only OIDC standard attributes may be `required`. Immutability is unrestricted. |
+| `advanced_security_mode = AUDIT/ENFORCED` with `feature_plan = ESSENTIALS` passed plan and failed at apply. | `lifecycle.precondition` on the pool: threat protection requires `PLUS`. |
+| Token validity had no stated units and only a `> 0` check. | Units stated in the `clients` description (access/ID minutes, refresh days); ranges 5–1440 and 1–3650, whole numbers, enforced. |
+| Lambda trigger names listed three times; the dynamic block read the raw variable, not the normalized local. | The `lambda_config` object type is the one list; validation and the local iterate it, and the dynamic block reads the local. Provider arguments must still be named once in `main.tf`. |
+| Verification email subject/body hard-coded with no recorded reason. | No branding or compliance ADR requires fixed text, so it is the optional `verification_email` input, defaulting to the exact 1.0 text. `CONFIRM_WITH_CODE` stays fixed as part of the security floor. |
+| Output `advanced_security_mode` echoed the input. | No consumer in the platform or any `aws.modules.*` repository, so it is removed (breaking; next release is a major version). |
+| A well-formed trigger ARN for a missing function or one lacking invoke permission passes plan and apply and silently breaks auth flows. | Not checkable without data-source reads, which the module avoids; the failure mode and its detection are documented in the README "Operating notes". |
+| Cognito service quotas undocumented. | Documented in the README "Operating notes" (50 custom attributes, 1,000 clients, 25 resource servers, 100 scopes per server, 50 scopes per client). |
 
 ## Security defaults
 

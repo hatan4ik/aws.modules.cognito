@@ -45,6 +45,11 @@ run "plans_secure_primary_user_pool_with_platform_defaults" {
   }
 
   assert {
+    condition     = aws_cognito_user_pool.this.verification_message_template[0].default_email_option == "CONFIRM_WITH_CODE" && aws_cognito_user_pool.this.verification_message_template[0].email_subject == "Verify your sign-in" && aws_cognito_user_pool.this.verification_message_template[0].email_message == "Your verification code is {####}."
+    error_message = "With verification_email unset, the verification email must keep the v1.0 subject and body exactly."
+  }
+
+  assert {
     condition     = length(aws_cognito_resource_server.this) == 0 && length(aws_cognito_user_pool_client.this) == 0
     error_message = "No clients or resource servers may exist unless declared."
   }
@@ -107,9 +112,10 @@ run "renders_new_v1_features_when_declared" {
   command = plan
 
   variables {
+    feature_plan           = "PLUS"
     advanced_security_mode = "ENFORCED"
     schema_attributes = {
-      full_name          = { attribute_data_type = "String", required = true, string_constraints = { min_length = 1, max_length = 128 } }
+      name               = { attribute_data_type = "String", required = true, string_constraints = { min_length = 1, max_length = 128 } }
       "custom:tenant_id" = { attribute_data_type = "String", mutable = false }
     }
     lambda_config = {
@@ -128,7 +134,7 @@ run "renders_new_v1_features_when_declared" {
   }
 
   assert {
-    condition     = length([for s in aws_cognito_user_pool.this.schema : s if s.name == "full_name"]) == 1 && tonumber([for s in aws_cognito_user_pool.this.schema : s if s.name == "full_name"][0].string_attribute_constraints[0].max_length) == 128 && length([for s in aws_cognito_user_pool.this.schema : s if s.name == "custom:tenant_id"]) == 1
+    condition     = length([for s in aws_cognito_user_pool.this.schema : s if s.name == "name"]) == 1 && tonumber([for s in aws_cognito_user_pool.this.schema : s if s.name == "name"][0].string_attribute_constraints[0].max_length) == 128 && length([for s in aws_cognito_user_pool.this.schema : s if s.name == "custom:tenant_id"]) == 1
     error_message = "Additional schema attributes, including a caller-prefixed custom attribute, must render with their constraints."
   }
 
@@ -141,6 +147,101 @@ run "renders_new_v1_features_when_declared" {
     condition     = aws_cognito_user_pool.this.email_configuration[0].email_sending_account == "DEVELOPER" && aws_cognito_user_pool.this.email_configuration[0].source_arn == "arn:aws:ses:us-east-2:123456789012:identity/example.test" && aws_cognito_user_pool.this.email_configuration[0].from_email_address == "no-reply@example.test"
     error_message = "A declared custom email sender must switch to DEVELOPER sending and carry the SES identity."
   }
+}
+
+run "renders_every_supported_lambda_trigger" {
+  command = plan
+
+  variables {
+    lambda_config = {
+      pre_sign_up          = "arn:aws:lambda:us-east-2:123456789012:function:pre-sign-up"
+      post_confirmation    = "arn:aws:lambda:us-east-2:123456789012:function:post-confirmation"
+      pre_authentication   = "arn:aws:lambda:us-east-2:123456789012:function:pre-authentication"
+      post_authentication  = "arn:aws:lambda:us-east-2:123456789012:function:post-authentication"
+      custom_message       = "arn:aws:lambda:us-east-2:123456789012:function:custom-message"
+      pre_token_generation = "arn:aws:lambda:us-east-2:123456789012:function:pre-token-generation"
+      user_migration       = "arn:aws:lambda:us-east-2:123456789012:function:user-migration"
+    }
+  }
+
+  assert {
+    condition = (
+      aws_cognito_user_pool.this.lambda_config[0].pre_sign_up == "arn:aws:lambda:us-east-2:123456789012:function:pre-sign-up" &&
+      aws_cognito_user_pool.this.lambda_config[0].post_confirmation == "arn:aws:lambda:us-east-2:123456789012:function:post-confirmation" &&
+      aws_cognito_user_pool.this.lambda_config[0].pre_authentication == "arn:aws:lambda:us-east-2:123456789012:function:pre-authentication" &&
+      aws_cognito_user_pool.this.lambda_config[0].post_authentication == "arn:aws:lambda:us-east-2:123456789012:function:post-authentication" &&
+      aws_cognito_user_pool.this.lambda_config[0].custom_message == "arn:aws:lambda:us-east-2:123456789012:function:custom-message" &&
+      aws_cognito_user_pool.this.lambda_config[0].pre_token_generation == "arn:aws:lambda:us-east-2:123456789012:function:pre-token-generation" &&
+      aws_cognito_user_pool.this.lambda_config[0].user_migration == "arn:aws:lambda:us-east-2:123456789012:function:user-migration"
+    )
+    error_message = "Every supported trigger must render from the normalized lambda_config map."
+  }
+}
+
+run "renders_only_the_declared_lambda_trigger" {
+  command = plan
+
+  variables {
+    lambda_config = { user_migration = "arn:aws:lambda:us-east-2:123456789012:function:user-migration" }
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool.this.lambda_config[0].user_migration == "arn:aws:lambda:us-east-2:123456789012:function:user-migration" && aws_cognito_user_pool.this.lambda_config[0].pre_sign_up == null
+    error_message = "Only the declared trigger may render; unset triggers must stay null."
+  }
+}
+
+run "rejects_malformed_arn_on_any_trigger" {
+  command = plan
+  variables {
+    lambda_config = { user_migration = "arn:aws:sns:us-east-2:123456789012:not-a-function" }
+  }
+  expect_failures = [var.lambda_config]
+}
+
+run "renders_caller_verification_email_text" {
+  command = plan
+
+  variables {
+    verification_email = {
+      subject = "Confirm your Example account"
+      message = "Welcome to Example. Your code is {####}."
+    }
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool.this.verification_message_template[0].email_subject == "Confirm your Example account" && aws_cognito_user_pool.this.verification_message_template[0].email_message == "Welcome to Example. Your code is {####}." && aws_cognito_user_pool.this.verification_message_template[0].default_email_option == "CONFIRM_WITH_CODE"
+    error_message = "Caller-supplied verification email text must render; the code-confirmation option stays fixed."
+  }
+}
+
+run "keeps_default_subject_when_only_message_is_set" {
+  command = plan
+
+  variables {
+    verification_email = { message = "Your Example code is {####}." }
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool.this.verification_message_template[0].email_subject == "Verify your sign-in" && aws_cognito_user_pool.this.verification_message_template[0].email_message == "Your Example code is {####}."
+    error_message = "An omitted verification_email field must fall back to the v1.0 default."
+  }
+}
+
+run "rejects_verification_message_without_code_placeholder" {
+  command = plan
+  variables {
+    verification_email = { message = "Your verification code is attached." }
+  }
+  expect_failures = [var.verification_email]
+}
+
+run "rejects_blank_verification_subject" {
+  command = plan
+  variables {
+    verification_email = { subject = "   " }
+  }
+  expect_failures = [var.verification_email]
 }
 
 run "rejects_a_scope_from_an_undeclared_resource_server" {
@@ -171,10 +272,30 @@ run "rejects_reusing_the_built_in_email_attribute_name" {
   expect_failures = [var.schema_attributes]
 }
 
-run "rejects_required_immutable_schema_attribute" {
+run "accepts_required_immutable_standard_attribute" {
   command = plan
   variables {
-    schema_attributes = { full_name = { attribute_data_type = "String", required = true, mutable = false } }
+    schema_attributes = { given_name = { attribute_data_type = "String", required = true, mutable = false } }
+  }
+
+  assert {
+    condition     = [for s in aws_cognito_user_pool.this.schema : s if s.name == "given_name"][0].required == true && [for s in aws_cognito_user_pool.this.schema : s if s.name == "given_name"][0].mutable == false
+    error_message = "A standard attribute may be both required and immutable, exactly like the built-in email attribute."
+  }
+}
+
+run "rejects_required_custom_attribute" {
+  command = plan
+  variables {
+    schema_attributes = { full_name = { attribute_data_type = "String", required = true } }
+  }
+  expect_failures = [var.schema_attributes]
+}
+
+run "rejects_required_custom_prefixed_attribute" {
+  command = plan
+  variables {
+    schema_attributes = { "custom:tenant_id" = { attribute_data_type = "String", required = true } }
   }
   expect_failures = [var.schema_attributes]
 }
@@ -185,6 +306,37 @@ run "rejects_invalid_advanced_security_mode" {
     advanced_security_mode = "AUDIT_MODE"
   }
   expect_failures = [var.advanced_security_mode]
+}
+
+run "rejects_audit_advanced_security_on_essentials" {
+  command = plan
+  variables {
+    feature_plan           = "ESSENTIALS"
+    advanced_security_mode = "AUDIT"
+  }
+  expect_failures = [aws_cognito_user_pool.this]
+}
+
+run "rejects_enforced_advanced_security_on_essentials" {
+  command = plan
+  variables {
+    feature_plan           = "ESSENTIALS"
+    advanced_security_mode = "ENFORCED"
+  }
+  expect_failures = [aws_cognito_user_pool.this]
+}
+
+run "accepts_audit_advanced_security_on_plus" {
+  command = plan
+  variables {
+    feature_plan           = "PLUS"
+    advanced_security_mode = "AUDIT"
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool.this.user_pool_add_ons[0].advanced_security_mode == "AUDIT" && aws_cognito_user_pool.this.user_pool_tier == "PLUS"
+    error_message = "AUDIT must be accepted on the PLUS plan."
+  }
 }
 
 run "rejects_malformed_lambda_arn" {
@@ -214,6 +366,109 @@ run "rejects_client_without_callback_url" {
         access_token_validity  = 60
         id_token_validity      = 60
         refresh_token_validity = 30
+        generate_secret        = false
+      }
+    }
+  }
+  expect_failures = [var.clients]
+}
+
+run "accepts_token_validity_at_service_bounds" {
+  command = plan
+  variables {
+    clients = {
+      low = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 5
+        id_token_validity      = 5
+        refresh_token_validity = 1
+        generate_secret        = false
+      }
+      high = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 1440
+        id_token_validity      = 1440
+        refresh_token_validity = 3650
+        generate_secret        = false
+      }
+    }
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool_client.this["low"].access_token_validity == 5 && aws_cognito_user_pool_client.this["high"].refresh_token_validity == 3650
+    error_message = "Token validity values at Cognito's inclusive bounds must be accepted."
+  }
+}
+
+run "rejects_access_token_validity_below_five_minutes" {
+  command = plan
+  variables {
+    clients = {
+      web = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 1
+        id_token_validity      = 60
+        refresh_token_validity = 30
+        generate_secret        = false
+      }
+    }
+  }
+  expect_failures = [var.clients]
+}
+
+run "rejects_id_token_validity_above_one_day" {
+  command = plan
+  variables {
+    clients = {
+      web = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 60
+        id_token_validity      = 1441
+        refresh_token_validity = 30
+        generate_secret        = false
+      }
+    }
+  }
+  expect_failures = [var.clients]
+}
+
+run "rejects_refresh_token_validity_above_ten_years" {
+  command = plan
+  variables {
+    clients = {
+      web = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 60
+        id_token_validity      = 60
+        refresh_token_validity = 3651
+        generate_secret        = false
+      }
+    }
+  }
+  expect_failures = [var.clients]
+}
+
+run "rejects_fractional_refresh_token_validity" {
+  command = plan
+  variables {
+    clients = {
+      web = {
+        callback_urls          = ["https://app.example.test/callback"]
+        logout_urls            = []
+        allowed_oauth_scopes   = ["openid"]
+        access_token_validity  = 60
+        id_token_validity      = 60
+        refresh_token_validity = 0.5
         generate_secret        = false
       }
     }
