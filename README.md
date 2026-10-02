@@ -54,7 +54,7 @@ A fleet of pools is a `for_each` over the module block, shown in [`examples/mult
 | --- | --- |
 | [`examples/minimal`](examples/minimal) | Just `name`, `feature_plan = "ESSENTIALS"`, `deletion_protection = true`, `mfa_configuration = "ON"`, and a `password_policy`. No clients, no resource servers. |
 | [`examples/web-app-with-scopes`](examples/web-app-with-scopes) | One resource server with two custom scopes; one authorization-code client using a standard OIDC scope and a custom scope; `generate_secret = false` for a browser single-page application. |
-| [`examples/production-features`](examples/production-features) | `feature_plan = "PLUS"`, `advanced_security_mode = "ENFORCED"`, `schema_attributes` with a required mutable attribute and an immutable `custom:` attribute, `lambda_config` with `pre_sign_up` and `post_confirmation`, and `email_configuration` backed by an SES identity. |
+| [`examples/production-features`](examples/production-features) | `feature_plan = "PLUS"`, `advanced_security_mode = "ENFORCED"`, `schema_attributes` with the required standard `name` attribute and an immutable, optional `custom:` attribute, `lambda_config` with `pre_sign_up` and `post_confirmation`, and `email_configuration` backed by an SES identity. |
 | [`examples/multiple-pools`](examples/multiple-pools) | A `variable "pools"` map and `module "pool" { for_each = var.pools ... }`, one pool per environment with per-pool `deletion_protection` and `mfa_configuration`. |
 
 ## Security model
@@ -68,6 +68,7 @@ Identity and credentials
 Clients
 
 - Every client is an OAuth authorization-code client (`allowed_oauth_flows = ["code"]`); implicit and client-credentials flows are not exposed.
+- Token lifetimes have fixed units: `access_token_validity` and `id_token_validity` are minutes (5–1440), `refresh_token_validity` is days (1–3650). Values outside Cognito's own bounds, or fractional values, fail at plan time.
 - Callback and logout URLs are validated at plan time to be `https://`; a plaintext URL never reaches AWS.
 - `generate_secret` is explicit per client, so a public browser client (no secret) and a confidential server-side client (a secret) are both first-class, distinguishable choices.
 - `prevent_user_existence_errors = "ENABLED"` on every client, so authentication errors do not reveal whether an account exists.
@@ -79,9 +80,36 @@ Scopes
 
 Advanced security, triggers, and email
 
-- `advanced_security_mode` defaults to `OFF`. Turning on adaptive, risk-based authentication (`AUDIT` or `ENFORCED`) is a deliberate declaration, not a module default, because it changes sign-in behaviour and cost.
+- `advanced_security_mode` defaults to `OFF`. Turning on adaptive, risk-based authentication (`AUDIT` or `ENFORCED`) is a deliberate declaration, not a module default, because it changes sign-in behaviour and cost. It is a Plus-tier feature, so a precondition fails the plan unless `feature_plan = "PLUS"`.
+- `schema_attributes` may mark only OIDC standard attributes (`name`, `given_name`, `phone_number`, ...) as `required`; Cognito does not allow a required custom attribute, so one fails at plan time. Enforce presence of a custom attribute in a `pre_sign_up` trigger instead.
+- `verification_email` sets the subject and body of the code-verification email (the `{####}` placeholder is required); unset, it keeps the module's default text. The confirmation method stays `CONFIRM_WITH_CODE`.
 - `lambda_config` accepts only ARNs matching the Lambda function ARN shape; the caller owns the function and its resource-based policy granting Cognito permission to invoke it. This module grants no Lambda permissions.
 - `email_configuration` is optional; when unset the pool uses the Cognito default sender (fine for low volume, rate-limited, unbranded). When set, `email_sending_account` switches to `DEVELOPER` and the caller-supplied SES identity ARN is validated at plan time to be an SES identity ARN.
+
+## Operating notes
+
+### Lambda trigger failures are invisible to Terraform
+
+`lambda_config` validates only the *shape* of each ARN. A well-formed ARN that points at a function that does not exist, a function in another Region, or a function whose resource-based policy does not allow `lambda:InvokeFunction` for the principal `cognito-idp.amazonaws.com` passes plan **and** apply cleanly. The pool is then broken for every user who reaches that trigger: sign-up fails if `pre_sign_up` or `post_confirmation` is broken, every sign-in fails if `pre_authentication`, `post_authentication`, `pre_token_generation`, or `user_migration` is broken, and verification emails stop if `custom_message` is broken. This module cannot check another resource's permissions without a data-source read, which it deliberately does not perform, so detection is the operator's job:
+
+- Before apply, confirm each function exists and grants Cognito invoke permission scoped to this pool: `aws lambda get-policy --function-name <arn>` must show `Principal: cognito-idp.amazonaws.com` with `AWS:SourceArn` equal to the pool ARN (`user_pool.arn` output). Create that permission with `aws_lambda_permission` in the root that owns the function.
+- After apply, exercise each configured flow once (a test sign-up and sign-in). Client SDKs surface trigger failures as `UnexpectedLambdaException`, `InvalidLambdaResponseException`, or `UserLambdaValidationException` rather than a Terraform error.
+- In CloudWatch, alarm on the function's own `Errors` metric and on its `Invocations` metric staying at zero while sign-up or sign-in traffic exists (a missing permission or nonexistent function means Cognito never invokes it, so the function's log group stays empty). Cognito's `AWS/Cognito` metrics (`SignUpSuccesses`, `SignInSuccesses`, `TokenRefreshSuccesses`) dropping to zero after a change to `lambda_config` is the pool-side signal.
+
+### Service quotas
+
+Cognito limits that bound how this module can be used (defaults per [Quotas in Amazon Cognito](https://docs.aws.amazon.com/cognito/latest/developerguide/quotas.html); check your account in Service Quotas):
+
+| Resource | Default | Adjustable | Relevant input |
+| --- | --- | --- | --- |
+| Custom attributes per user pool | 50 | No | `schema_attributes` (custom attributes also can never be removed once created) |
+| App clients per user pool | 1,000 | Yes (up to 10,000) | `clients` |
+| Resource servers per user pool | 25 | Yes (up to 300) | `resource_servers` |
+| Scopes per resource server | 100 | No | `resource_servers[*].scopes` |
+| Scopes per app client | 50 | No | `clients[*].allowed_oauth_scopes` |
+| Callback / logout URLs per app client | 100 each | No | `clients[*].callback_urls`, `logout_urls` |
+
+These are not validated at plan time; exceeding one fails at apply with `LimitExceededException`.
 
 ## Design principles
 
@@ -164,10 +192,10 @@ No modules.
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | <a name="input_advanced_security_mode"></a> [advanced\_security\_mode](#input\_advanced\_security\_mode) | Cognito advanced (adaptive, risk-based) security: OFF, AUDIT, or ENFORCED. Costs more and changes sign-in behaviour, so it defaults off. | `string` | `"OFF"` | no |
-| <a name="input_clients"></a> [clients](#input\_clients) | Stable client-keyed OAuth authorization-code clients. Callback and logout URLs must be reviewed application endpoints. | <pre>map(object({<br/>    callback_urls          = set(string)<br/>    logout_urls            = set(string)<br/>    allowed_oauth_scopes   = set(string)<br/>    access_token_validity  = number<br/>    id_token_validity      = number<br/>    refresh_token_validity = number<br/>    generate_secret        = bool<br/>  }))</pre> | `{}` | no |
+| <a name="input_clients"></a> [clients](#input\_clients) | Stable client-keyed OAuth authorization-code clients. Callback and logout URLs must be reviewed application endpoints. Token validity units are fixed by the module: access\_token\_validity and id\_token\_validity are in MINUTES (whole numbers, 5-1440, i.e. 5 minutes to 1 day); refresh\_token\_validity is in DAYS (whole numbers, 1-3650, i.e. 1 day to 10 years). These are the Cognito service bounds. | <pre>map(object({<br/>    callback_urls          = set(string)<br/>    logout_urls            = set(string)<br/>    allowed_oauth_scopes   = set(string)<br/>    access_token_validity  = number<br/>    id_token_validity      = number<br/>    refresh_token_validity = number<br/>    generate_secret        = bool<br/>  }))</pre> | `{}` | no |
 | <a name="input_deletion_protection"></a> [deletion\_protection](#input\_deletion\_protection) | Whether AWS Cognito deletion protection remains active for this user pool. | `bool` | n/a | yes |
 | <a name="input_email_configuration"></a> [email\_configuration](#input\_email\_configuration) | Custom (SES-backed) email sender. Null keeps the Cognito default sender, which is fine for low-volume or non-production pools but is rate-limited and cannot be branded. | <pre>object({<br/>    source_arn             = string<br/>    from_email_address     = optional(string)<br/>    reply_to_email_address = optional(string)<br/>    configuration_set      = optional(string)<br/>  })</pre> | `null` | no |
-| <a name="input_feature_plan"></a> [feature\_plan](#input\_feature\_plan) | Cognito feature plan. MRR requires ESSENTIALS or PLUS; LITE cannot meet this module's security contract. | `string` | n/a | yes |
+| <a name="input_feature_plan"></a> [feature\_plan](#input\_feature\_plan) | Cognito feature plan (user pool tier): ESSENTIALS or PLUS. LITE is rejected because it cannot meet this module's security contract (ALLOW\_USER\_AUTH needs ESSENTIALS or higher). PLUS is required for advanced\_security\_mode AUDIT or ENFORCED. | `string` | n/a | yes |
 | <a name="input_lambda_config"></a> [lambda\_config](#input\_lambda\_config) | Cognito Lambda triggers this module supports, by trigger name. Each value is a Lambda function ARN; the caller owns the function and its permission to be invoked by Cognito. | <pre>object({<br/>    pre_sign_up          = optional(string)<br/>    post_confirmation    = optional(string)<br/>    pre_authentication   = optional(string)<br/>    post_authentication  = optional(string)<br/>    custom_message       = optional(string)<br/>    pre_token_generation = optional(string)<br/>    user_migration       = optional(string)<br/>  })</pre> | `{}` | no |
 | <a name="input_mfa_configuration"></a> [mfa\_configuration](#input\_mfa\_configuration) | Cognito MFA policy. Software-token MFA is enabled for either permitted secure value. | `string` | n/a | yes |
 | <a name="input_name"></a> [name](#input\_name) | Lowercase Cognito user-pool name used in resource names and tags. | `string` | n/a | yes |
@@ -175,12 +203,12 @@ No modules.
 | <a name="input_resource_servers"></a> [resource\_servers](#input\_resource\_servers) | Stable resource-server keyed custom OAuth scope contracts. | <pre>map(object({<br/>    identifier = string<br/>    name       = string<br/>    scopes = map(object({<br/>      description = string<br/>    }))<br/>  }))</pre> | `{}` | no |
 | <a name="input_schema_attributes"></a> [schema\_attributes](#input\_schema\_attributes) | Additional standard or custom attributes beyond the module's built-in required, immutable, verified email attribute. Keys are attribute names (custom attributes are given the custom: prefix automatically by Cognito when name does not already have one). | <pre>map(object({<br/>    attribute_data_type      = string<br/>    mutable                  = optional(bool, true)<br/>    required                 = optional(bool, false)<br/>    developer_only_attribute = optional(bool, false)<br/>    string_constraints = optional(object({<br/>      min_length = optional(number)<br/>      max_length = optional(number)<br/>    }))<br/>    number_constraints = optional(object({<br/>      min_value = optional(number)<br/>      max_value = optional(number)<br/>    }))<br/>  }))</pre> | `{}` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional required allocation and ownership tags. Name and Component tags are computed by the module. | `map(string)` | `{}` | no |
+| <a name="input_verification_email"></a> [verification\_email](#input\_verification\_email) | Subject and body of the email Cognito sends with the sign-up/attribute verification code. The message must contain the {####} code placeholder. Omitting either field keeps the module's v1.0 text, so existing callers see no change. Branded copy is typically paired with email\_configuration (an SES sender). | <pre>object({<br/>    subject = optional(string, "Verify your sign-in")<br/>    message = optional(string, "Your verification code is {####}.")<br/>  })</pre> | `{}` | no |
 
 ## Outputs
 
 | Name | Description |
 |------|-------------|
-| <a name="output_advanced_security_mode"></a> [advanced\_security\_mode](#output\_advanced\_security\_mode) | The advanced security mode this pool was created with. |
 | <a name="output_client_ids"></a> [client\_ids](#output\_client\_ids) | Stable application-client key to user-pool client ID mapping. Client secrets are deliberately not output. |
 | <a name="output_resource_server_scope_identifiers"></a> [resource\_server\_scope\_identifiers](#output\_resource\_server\_scope\_identifiers) | Stable custom resource-server scope identifiers for API authorization configuration. |
 | <a name="output_user_pool"></a> [user\_pool](#output\_user\_pool) | Primary user-pool identifiers required by application token validation and supported Cognito configuration. |

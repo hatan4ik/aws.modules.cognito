@@ -10,7 +10,7 @@ variable "name" {
 }
 
 variable "feature_plan" {
-  description = "Cognito feature plan. MRR requires ESSENTIALS or PLUS; LITE cannot meet this module's security contract."
+  description = "Cognito feature plan (user pool tier): ESSENTIALS or PLUS. LITE is rejected because it cannot meet this module's security contract (ALLOW_USER_AUTH needs ESSENTIALS or higher). PLUS is required for advanced_security_mode AUDIT or ENFORCED."
   type        = string
   nullable    = false
 
