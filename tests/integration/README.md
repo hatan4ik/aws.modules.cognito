@@ -14,7 +14,7 @@ pool itself, and needs no AWS credentials of its own.
 
 | Suite | What it proves | Needs | Typical time |
 | --- | --- | --- | --- |
-| `smoke.tftest.hcl` | A minimal `ESSENTIALS` pool with one authorization-code client is accepted by the real API; the pool ID, ARN, and endpoint are well-formed; the client ID is returned; `advanced_security_mode` defaults to `OFF`; the pool and client are deleted at the end of the run. | credentials, region | about a minute |
+| `smoke.tftest.hcl` | A minimal `ESSENTIALS` pool with one authorization-code client is accepted by the real API; the pool ID, ARN, and endpoint are well-formed; the client ID is returned; the pool's `user_pool_add_ons.advanced_security_mode` as returned by the real API defaults to `OFF`; the pool and client are deleted at the end of the run. | credentials, region | about a minute |
 
 ## Run it in your account
 

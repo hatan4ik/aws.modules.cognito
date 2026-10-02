@@ -43,7 +43,7 @@ root (one user pool)
 ├── main.tf       aws_cognito_user_pool.this, aws_cognito_resource_server.this (for_each), aws_cognito_user_pool_client.this (for_each)
 ├── locals.tf     Tag computation, Lambda-trigger map with nulls stripped
 ├── variables.tf  Every input, its type, and its plan-time validation
-└── outputs.tf    user_pool, client_ids, resource_server_scope_identifiers, advanced_security_mode
+└── outputs.tf    user_pool, client_ids, resource_server_scope_identifiers
 ```
 
 A fleet of pools is a `for_each` over the module block, shown in [`examples/multiple-pools`](examples/multiple-pools); the module itself never creates more than one pool.

@@ -65,7 +65,7 @@ run "smoke" {
   }
 
   assert {
-    condition     = output.advanced_security_mode == "OFF"
-    error_message = "advanced_security_mode must default to OFF when not declared."
+    condition     = aws_cognito_user_pool.this.user_pool_add_ons[0].advanced_security_mode == "OFF"
+    error_message = "The real pool's advanced security mode must default to OFF when not declared."
   }
 }

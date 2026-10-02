@@ -16,8 +16,3 @@ output "resource_server_scope_identifiers" {
   description = "Stable custom resource-server scope identifiers for API authorization configuration."
   value       = { for key, server in aws_cognito_resource_server.this : key => server.scope_identifiers }
 }
-
-output "advanced_security_mode" {
-  description = "The advanced security mode this pool was created with."
-  value       = var.advanced_security_mode
-}

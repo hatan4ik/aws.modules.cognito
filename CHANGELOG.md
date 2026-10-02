@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `verification_email` (optional object with optional `subject` and `message`): the verification email text was previously hard-coded with no stated reason. Both fields default to the exact v1.0 text (`"Verify your sign-in"` / `"Your verification code is {####}."`), so existing callers see no plan change. `message` must contain the `{####}` code placeholder and be 6–20000 characters; `subject` must be 1–140 non-blank characters. The confirmation method stays fixed at `CONFIRM_WITH_CODE`.
 
+### Removed
+
+- **Breaking:** the output `advanced_security_mode`. It only echoed the caller's own input back (`value = var.advanced_security_mode`), adding no information the caller did not already hold, and nothing in the platform consumes it (searched `devops-aws-infra` and every `aws.modules.*` repository; the only reference was this module's own `examples/production-features`). Migration: reference the value you pass as `advanced_security_mode` (for example a local or variable in your root) instead of `module.<name>.advanced_security_mode`. Because an output is removed, the next release is a major version.
+
 ### Changed — stricter plan-time validation (correctness fixes)
 
 Each of these rejects at **plan** a configuration that previously passed plan but that Cognito already rejected at **apply**. No configuration that could actually be applied before is rejected now; a caller who sees one of these errors had a configuration that would have failed mid-apply. This is a correctness improvement, not a regression.
