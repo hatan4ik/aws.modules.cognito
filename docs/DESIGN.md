@@ -4,7 +4,7 @@ Status: accepted 2026-09-25. Supersedes v0.1.x.
 
 ## Purpose
 
-`aws.modules.cognito` provisions **one** Amazon Cognito user pool per module call: verified-email sign-in, a strong password policy, software-token MFA, OAuth authorization-code clients, and typed custom resource-server scopes. It is secure by default and explicit by declaration. It deliberately does not create identity providers, hosted-UI domains, or a second (replica) pool.
+`aws.modules.cognito` provisions **one** Amazon Cognito user pool per root-module call: verified-email sign-in, a strong password policy, software-token MFA, OAuth authorization-code clients, and typed custom resource-server scopes. It is secure by default and explicit by declaration. Identity providers and hosted-UI domains remain separate. Native MRR, which AWS introduced after this v1 design, is isolated in `modules/multi-region-replication` because it adopts an existing eligible pool through a different provider and a two-Region lifecycle.
 
 ## Why the v0.1.x design was replaced
 
@@ -49,4 +49,10 @@ Contract tests with `mock_provider`; an integration `smoke` suite that creates a
 
 ## Compatibility
 
-Terraform `>= 1.7.0, < 2.0.0`, AWS provider `>= 6.35.0, < 7.0.0`. Multi-Region user pool replication remains unimplemented pending AWS provider support for `CreateUserPoolReplica`/`UpdateUserPoolReplica`; when that lands it will be a new optional input, not a resurrection of the always-rejecting `replication` field.
+Terraform `>= 1.7.0, < 2.0.0`, AWS provider `>= 6.35.0, < 7.0.0`. The post-v1 MRR composition uses AWSCC `>= 1.92.0, < 2.0.0`; it is additive and does not resurrect the root's always-rejecting `replication` input.
+
+## Post-v1 native MRR decision
+
+AWS now provides native Cognito user-pool replicas, so the earlier statement that no native replication exists is obsolete. The implementation remains outside the root because the root AWS provider does not expose the primary pool's required key configuration, while the AWSCC provider exposes the replica and regional-configuration resources. The composition uses no CloudFormation stack.
+
+The first apply always leaves the replica `INACTIVE`. Activation requires a reviewed HTTPS runbook, application routing and token-validation readiness, a replica authentication test, and explicit acceptance of primary-only write operations and the TOTP limitation. `mfa_configuration = "ON"` blocks activation: this catalog's primary pool enables software-token MFA, and AWS does not support TOTP authentication in a secondary replica. These checks keep the module from representing replication as equivalent to full active-active identity.

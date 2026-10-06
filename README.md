@@ -1,6 +1,6 @@
 # aws.modules.cognito
 
-Provisions one Amazon Cognito user pool per module call: verified-email sign-in, a strong caller-declared password policy, software-token MFA that is always on or optional (never off), OAuth authorization-code clients, and typed custom resource-server scopes. Additional standard or custom schema attributes, advanced (adaptive, risk-based) security, Lambda triggers, and a custom SES-backed email sender are all optional and default to the secure, low-surface behaviour. It is secure by default and explicit by declaration, creates nothing beyond the pool, its clients, and its resource servers, and performs no data-source reads. Requires Terraform >= 1.7 and the AWS provider >= 6.35, < 7.
+Provisions one Amazon Cognito user pool per root-module call: verified-email sign-in, a strong caller-declared password policy, software-token MFA that is always on or optional (never off), OAuth authorization-code clients, and typed custom resource-server scopes. Additional standard or custom schema attributes, advanced (adaptive, risk-based) security, Lambda triggers, and a custom SES-backed email sender are all optional and default to the secure, low-surface behaviour. The separate `modules/multi-region-replication` composition adopts an eligible existing pool into AWS-native MRR with an inactive-by-default replica and explicit activation gates. Requires Terraform >= 1.7; the root uses AWS provider >= 6.35, < 7 and the MRR composition uses AWSCC >= 1.92, < 2.
 
 ## Why this module
 
@@ -36,7 +36,7 @@ This is [`examples/minimal`](examples/minimal): a verified-email pool with a 14-
 
 ## Architecture
 
-This module has one responsibility — one Cognito user pool per call — and no submodules:
+The root has one responsibility — one Cognito user pool per call. MRR is a separate lifecycle and provider boundary:
 
 ```text
 root (one user pool)
@@ -44,6 +44,7 @@ root (one user pool)
 ├── locals.tf     Tag computation, Lambda-trigger map with nulls stripped
 ├── variables.tf  Every input, its type, and its plan-time validation
 └── outputs.tf    user_pool, client_ids, resource_server_scope_identifiers
+modules/multi-region-replication  adopt an eligible pool into one inactive-by-default native replica
 ```
 
 A fleet of pools is a `for_each` over the module block, shown in [`examples/multiple-pools`](examples/multiple-pools); the module itself never creates more than one pool.
@@ -56,6 +57,7 @@ A fleet of pools is a `for_each` over the module block, shown in [`examples/mult
 | [`examples/web-app-with-scopes`](examples/web-app-with-scopes) | One resource server with two custom scopes; one authorization-code client using a standard OIDC scope and a custom scope; `generate_secret = false` for a browser single-page application. |
 | [`examples/production-features`](examples/production-features) | `feature_plan = "PLUS"`, `advanced_security_mode = "ENFORCED"`, `schema_attributes` with the required standard `name` attribute and an immutable, optional `custom:` attribute, `lambda_config` with `pre_sign_up` and `post_confirmation`, and `email_configuration` backed by an SES identity. |
 | [`examples/multiple-pools`](examples/multiple-pools) | A `variable "pools"` map and `module "pool" { for_each = var.pools ... }`, one pool per environment with per-pool `deletion_protection` and `mfa_configuration`. |
+| [`examples/multi-region-replica`](examples/multi-region-replica) | AWS-native MRR with explicit primary/secondary AWSCC providers, matching multi-Region KMS-key evidence, and a separate activation gate. |
 
 ## Security model
 
@@ -111,6 +113,12 @@ Cognito limits that bound how this module can be used (defaults per [Quotas in A
 
 These are not validated at plan time; exceeding one fails at apply with `LimitExceededException`.
 
+### Multi-Region replication is constrained continuity, not full active-active
+
+`modules/multi-region-replication` creates AWS-native Cognito MRR; it does not implement the earlier event-driven user-copy workaround. AWS keeps the primary authoritative for sign-up, password reset, profile writes, and other administrative changes, while the secondary handles a supported subset of authentication operations after activation. Replication is eventually consistent, one secondary is permitted, and TOTP MFA is not supported in that secondary.
+
+The composition therefore defaults to `INACTIVE`, requires reviewed evidence before activation, and blocks activation entirely when the primary reports `mfa_configuration = "ON"`. With `OPTIONAL`, users enrolled in TOTP are still unable to use the secondary; the activation gate forces the platform owner to accept and document that limitation. Application/API routing and Cognito domain health-check routing remain environment concerns and must be exercised in the failover runbook.
+
 ## Design principles
 
 - **Single responsibility.** One resource concept — a Cognito user pool — is the module's entire scope. Clients and resource servers are `for_each` children of that one pool, not independent concerns.
@@ -124,8 +132,8 @@ The full rationale, including why the v0.1.x design was replaced, is in [docs/DE
 ## Compatibility and scope
 
 - Terraform `>= 1.7.0, < 2.0.0`. AWS provider `>= 6.35.0, < 7.0.0`.
-- One Cognito user pool, its authorization-code clients, and its custom resource-server scopes. Identity providers (SAML, OIDC federation) and a hosted-UI domain are not created here; they have separate lifecycles and can be added as new optional inputs without changing the existing interface.
-- Multi-Region user pool replication (MRR) remains unimplemented pending AWS provider support for the `CreateUserPoolReplica`/`UpdateUserPoolReplica` APIs (see [docs/DESIGN.md](docs/DESIGN.md)). It stays a roadmap item; when provider support lands it arrives as a new optional input, not a resurrection of the v0.1.x `replication` field that could never be validly enabled.
+- The root owns one Cognito user pool, its authorization-code clients, and custom resource-server scopes. Identity providers (SAML, OIDC federation) and a hosted-UI domain are not created here.
+- Native MRR is implemented as the separate `modules/multi-region-replication` composition because it has a different lifecycle and needs primary and secondary AWSCC provider configurations. It can adopt only an already eligible pool whose multi-Region KMS key configuration has been completed and verified; the current AWS provider cannot configure that primary-pool setting.
 - Nothing in the v1 interface is scheduled to change. Additions arrive as optional inputs and outputs.
 
 ## Versioning and releases

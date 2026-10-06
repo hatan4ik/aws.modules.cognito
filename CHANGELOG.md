@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `modules/multi-region-replication`: AWS-native Cognito MRR adoption for an existing eligible primary pool through the AWS Cloud Control provider, with explicit primary/secondary provider ownership, matching multi-Region KMS-key evidence, Region-local email/Lambda settings, an `INACTIVE` default, and a fail-closed activation gate. Activation is blocked for `mfa_configuration = "ON"` because AWS does not support TOTP MFA in secondary replicas. Includes a two-Region example and credential-free contract tests. No CloudFormation stack is created.
 - `verification_email` (optional object with optional `subject` and `message`): the verification email text was previously hard-coded with no stated reason. Both fields default to the exact v1.0 text (`"Verify your sign-in"` / `"Your verification code is {####}."`), so existing callers see no plan change. `message` must contain the `{####}` code placeholder and be 6–20000 characters; `subject` must be 1–140 non-blank characters. The confirmation method stays fixed at `CONFIRM_WITH_CODE`.
 
 ### Removed
