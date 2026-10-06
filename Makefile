@@ -2,11 +2,14 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := check
 
 ROOT_DIRS     := .
+MODULE_DIRS   := . modules/multi-region-replication
 # Only example directories that contain Terraform, so a stray file under examples/ is ignored.
 EXAMPLE_DIRS  := $(sort $(patsubst %/,%,$(dir $(wildcard examples/*/*.tf))))
 # The random-suffix fixture the integration suites apply for real; not a deployable pattern.
 FIXTURE_DIRS  := tests/integration/setup
 ALL_DIRS      := $(ROOT_DIRS) $(EXAMPLE_DIRS) $(FIXTURE_DIRS)
+DOC_DIRS      := $(MODULE_DIRS) $(EXAMPLE_DIRS) $(FIXTURE_DIRS)
+LINT_DIRS     := $(MODULE_DIRS) $(EXAMPLE_DIRS) $(FIXTURE_DIRS)
 TFLINT_CONFIG := $(CURDIR)/.tflint.hcl
 TFDOCS_CONFIG := $(CURDIR)/.terraform-docs.yml
 # Must match the terraform-docs bundled by the CI action (terraform-docs/gh-actions
@@ -27,7 +30,7 @@ fmt-fix:
 	@terraform fmt -recursive
 
 init:
-	@for dir in $(ALL_DIRS); do \
+	@for dir in $(LINT_DIRS); do \
 	  echo "==> init $$dir"; \
 	  (cd "$$dir" && terraform init -backend=false -input=false >/dev/null) || exit 1; \
 	done
@@ -41,13 +44,13 @@ validate: init
 lint:
 	@echo "==> lint (tflint --init)"
 	@tflint --init --config="$(TFLINT_CONFIG)"
-	@for dir in $(ALL_DIRS); do \
+	@for dir in $(LINT_DIRS); do \
 	  echo "==> lint $$dir"; \
 	  (cd "$$dir" && tflint --config="$(TFLINT_CONFIG)" --format compact) || exit 1; \
 	done
 
 test:
-	@for dir in $(ROOT_DIRS); do \
+	@for dir in $(MODULE_DIRS); do \
 	  echo "==> test $$dir"; \
 	  (cd "$$dir" && terraform test) || exit 1; \
 	done
@@ -57,13 +60,13 @@ docs-version:
 	  echo "error: terraform-docs $(TFDOCS_VERSION) is required (found: $$(terraform-docs --version)); CI generates docs with that version" >&2; exit 1; }
 
 docs: docs-version
-	@for dir in $(ALL_DIRS); do \
+	@for dir in $(DOC_DIRS); do \
 	  echo "==> docs $$dir"; \
 	  terraform-docs -c "$(TFDOCS_CONFIG)" "$$dir" || exit 1; \
 	done
 
 docs-check: docs-version
-	@for dir in $(ALL_DIRS); do \
+	@for dir in $(DOC_DIRS); do \
 	  echo "==> docs-check $$dir"; \
 	  terraform-docs -c "$(TFDOCS_CONFIG)" --output-check "$$dir" || exit 1; \
 	done

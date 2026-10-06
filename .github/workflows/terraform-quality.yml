@@ -24,7 +24,29 @@ jobs:
           - examples/web-app-with-scopes
           - examples/production-features
           - examples/multiple-pools
+          - examples/multi-region-replica
     uses: hatan4ik/terraform-pipelines/.github/workflows/terraform-quality.yml@8fc2a04c7931dd449097bb92b15b085278e3f67a # v0.1.1
     with:
       working_directory: ${{ matrix.directory }}
       check_docs: true
+
+  mrr-contract-tests:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: modules/multi-region-replication
+    steps:
+      - name: Check out immutable caller revision
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.7.5
+          terraform_wrapper: false
+
+      - name: Initialize without a remote backend
+        run: terraform init -backend=false -input=false -no-color
+
+      - name: Run aliased-provider contract tests
+        run: terraform test -no-color
